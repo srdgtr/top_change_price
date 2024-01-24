@@ -1,3 +1,4 @@
+import configparser
 from datetime import datetime
 import dropbox
 import os
@@ -6,6 +7,9 @@ import pandas as pd
 import polars as pl
 
 dbx = dropbox.Dropbox(os.environ.get("DROPBOX"))
+
+config = configparser.ConfigParser()
+config.read(Path.home() / "bol_export_files.ini")
 
 file_today = max(
     (Path.home() / "for_import_basis_file").glob("**/basis_sorted_PriceList_bol*.csv"),
@@ -35,8 +39,8 @@ for folder in Path.home().iterdir():
     if folder.is_dir() and len(folder.stem) == 3 and folder.stem != "tmp":  # altijd 3 letter afkorting
         if folder.stem == "EXL":
             leveranciers_data = pd.read_csv(
-                max(folder.glob(f"**/{folder.name}_Vendit*.csv")), usecols=["sku", "Inkoopprijs exclusief", "promo_tot"]
-            ).assign(sku=lambda x: folder.stem + x.sku.astype(str))
+                max(folder.glob(f"**/{folder.name}_Vendit*.csv")), usecols=["sku", "price", "promo_tot"]
+            ).assign(sku=lambda x: folder.stem + x.sku.astype(str)).rename(columns={ "price": "Inkoopprijs exclusief"})
         else:
             leveranciers_data = pd.read_csv(
                 max(folder.glob(f"**/{folder.name}_Vendit*.csv")), usecols=["sku", "Inkoopprijs exclusief"]
@@ -53,13 +57,15 @@ price_info = (
     .rename(columns={"Product ID eigen": "Product_ID_eigen"})
 )
 
+pallet_verzendkosten = float(config.get("voor import file basisbestand", "verzendkosten_pallet_klein"))
 price_info = (
     price_info.assign(
         price_difference=lambda x: (x["Inkoopprijs (excl. BTW)"] - x["nieuwe_Inkoopprijs"]).round(2),
         percentage_difference=lambda x: (x["price_difference"] / x["Inkoopprijs (excl. BTW)"]) * 100,
     )
     .round(2)
-    .query("price_difference.abs() > `Inkoopprijs (excl. BTW)` * 0.05")
+    .query("price_difference > `Inkoopprijs (excl. BTW)` * 0.05")
+    .query("price_difference != @pallet_verzendkosten")
     .sort_values(
         by=["Product_ID_eigen", "percentage_difference"],
         key=lambda x: x if x.name != "Product_ID_eigen" else x.str[:3],
