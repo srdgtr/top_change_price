@@ -8,7 +8,7 @@ import polars as pl
 
 dbx = dropbox.Dropbox(os.environ.get("DROPBOX"))
 
-config = configparser.ConfigParser()
+config = configparser.ConfigParser(inline_comment_prefixes="^")
 config.read(Path.home() / "bol_export_files.ini")
 
 file_today = max(
@@ -21,11 +21,8 @@ bron_datafile = pd.read_csv(file_today, usecols=["Product ID eigen", "Inkoopprij
 omschrijving_basis_bestand_pd = (
     pl.read_excel(
         max((Path.home() / "ean_numbers_basisfiles").glob("basis_*.xlsm"), key=os.path.getctime),
-        read_csv_options={
-            "columns": ["Product ID eigen", "EAN", "EAN (handmatig)", "Omschrijving"],
-            "infer_schema_length": 0,
-        },
-        xlsx2csv_options={"ignore_formats": ["float"]},
+        columns = ["Product ID eigen", "EAN", "EAN (handmatig)", "Omschrijving"],
+        infer_schema_length = 0
     )
     .filter(pl.col("Product ID eigen").is_not_null())
     .to_pandas()
@@ -74,9 +71,19 @@ price_info = (
 )
 
 date_now = datetime.now().strftime("%c").replace(":", "-")
-price_info.to_csv(f"price_verschil_{date_now}.csv", index=False)
 
-latest_file = max(Path.cwd().glob("price_verschil_*.csv"), key=os.path.getctime)
+with pd.ExcelWriter(f"price_verschil_{date_now}.xlsx") as writer:
+    price_info.to_excel(writer, sheet_name="price_verschil", index=False,freeze_panes=(1,0))
+    worksheet = writer.sheets['price_verschil']
+    worksheet.set_landscape()
+    worksheet.set_column('A:A', 20)
+    worksheet.set_column('B:B', 20)
+    worksheet.set_column('C:D', 17)
+    worksheet.set_column('E:E', 90)
+    worksheet.set_column('F:F', 12)
+    worksheet.set_column('G:I', 20)
+
+latest_file = max(Path.cwd().glob("price_verschil_*.xlsx"), key=os.path.getctime)
 with open(latest_file, "rb") as f:
     dbx.files_upload(
         f.read(), "/gebruikers/peter/" + latest_file.name, mode=dropbox.files.WriteMode("overwrite", None), mute=True
